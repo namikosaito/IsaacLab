@@ -21,20 +21,15 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
 from isaaclab.utils.math import sample_uniform
-import omni.usd
-import os
-import torch
-torch.autograd.set_detect_anomaly(True)
-os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
-os.environ["TORCH_USE_CUDA_DSA"] = "1"
+
 
 @configclass
 class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     # env
     episode_length_s = 8.3333  # 500 timesteps
     decimation = 2
-    action_space = 11#9
-    observation_space = 11
+    action_space = 9
+    observation_space = 23
     state_space = 0
 
     # simulation
@@ -53,13 +48,12 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
-    # omni.usd.get_context().open_stage("/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd")
 
     # robot
     robot = ArticulationCfg(
         prim_path="/World/envs/env_.*/Robot",
         spawn=sim_utils.UsdFileCfg(
-            usd_path="/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd",
+            usd_path=f"{ISAAC_NUCLEUS_DIR}/Robots/Franka/franka_instanceable.usd",
             activate_contact_sensors=False,
             rigid_props=sim_utils.RigidBodyPropertiesCfg(
                 disable_gravity=False,
@@ -75,16 +69,13 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 "panda_joint2": -1.066,
                 "panda_joint3": -0.155,
                 "panda_joint4": -2.239,
-                "panda_joint5": 0.0, #-1.841,
+                "panda_joint5": -1.841,
                 "panda_joint6": 1.003,
                 "panda_joint7": 0.469,
-                "index_joint_1" : 0.0,
-                "middle_joint_1" : 0.0,
-                "ring_joint_1" : 0.0,
-                "thumb_joint_1" : 0.0,
+                "panda_finger_joint.*": 0.035,
             },
-            pos=(1/36.0, 0.0, 0.0),
-            rot=(36.0, 0.0, 0.0, 1.0),
+            pos=(1.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
@@ -95,25 +86,18 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 damping=4.0,
             ),
             "panda_forearm": ImplicitActuatorCfg(
-                joint_names_expr=["panda_joint5"],
+                joint_names_expr=["panda_joint[5-7]"],
                 effort_limit=12.0,
                 velocity_limit=2.61,
                 stiffness=80.0,
                 damping=4.0,
             ),
-            "panda_wrist": ImplicitActuatorCfg(
-                joint_names_expr=["panda_joint[6-7]"],
+            "panda_hand": ImplicitActuatorCfg(
+                joint_names_expr=["panda_finger_joint.*"],
                 effort_limit=200.0,
-                velocity_limit=1.0,
+                velocity_limit=0.2,
                 stiffness=2e3,
                 damping=1e2,
-            ),
-            "panda_hand": ImplicitActuatorCfg(
-                joint_names_expr=[".*_joint_.*"],
-                effort_limit=200.0,
-                velocity_limit=10,
-                stiffness=200,
-                damping=0.1,
             ),
         },
     )
@@ -126,7 +110,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
             activate_contact_sensors=False,
         ),
         init_state=ArticulationCfg.InitialStateCfg(
-            pos=(0.0, 0.0, 0.4),
+            pos=(0.0, 0, 0.4),
             rot=(0.1, 0.0, 0.0, 0.0),
             joint_pos={
                 "door_left_joint": 0.0,
@@ -171,7 +155,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     dof_velocity_scale = 0.1
 
     # reward scales
-    dist_reward_scale = 150#1.5
+    dist_reward_scale = 1.5
     rot_reward_scale = 1.5
     open_reward_scale = 10.0
     action_penalty_scale = 0.05
@@ -216,45 +200,32 @@ class FrankaCabinetEnv(DirectRLEnv):
         self.robot_dof_upper_limits = self._robot.data.soft_joint_pos_limits[0, :, 1].to(device=self.device)
 
         self.robot_dof_speed_scales = torch.ones_like(self.robot_dof_lower_limits)
-        # self.robot_dof_speed_scales[self._robot.find_joints("index_joint_0")[0]] = 0.1
-        # self.robot_dof_speed_scales[self._robot.find_joints("thumb_joint_0")[0]] = 0.1
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint1")[0]] = 0.1
+        self.robot_dof_speed_scales[self._robot.find_joints("panda_finger_joint2")[0]] = 0.1
 
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
         stage = get_current_stage()
-        PRIM ="/World/envs/env_0/Robot/franka_allegro" 
-        # PRIM="/Root/franka_allegro/allegro_hand"
-
+        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", stage)
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/palm_link")),
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/franka/panda_link7")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_link7")),
             self.device,
         )
-        index_finger_pose = get_env_local_pose(
+        lfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/index_link_3")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_leftfinger")),
             self.device,
         )
-        middle_finger_pose = get_env_local_pose(
+        rfinger_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/middle_link_3")),
-            self.device,
-        )
-        ring_finger_pose = get_env_local_pose(
-            self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/ring_link_3")),
-            self.device,
-        )
-        thumb_finger_pose = get_env_local_pose(
-            self.scene.env_origins[0],
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/thumb_link_3")),
+            UsdGeom.Xformable(stage.GetPrimAtPath("/World/envs/env_0/Robot/panda_rightfinger")),
             self.device,
         )
 
         finger_pose = torch.zeros(7, device=self.device)
-        finger_pose[0:3] = ((index_finger_pose[0:3] + middle_finger_pose[0:3] + ring_finger_pose[0:3])/3.0 + thumb_finger_pose[0:3]) / 2.0
-        finger_pose[3:7] = (index_finger_pose[3:7] + middle_finger_pose[3:7] + ring_finger_pose[3:7]) / 3.0
+        finger_pose[0:3] = (lfinger_pose[0:3] + rfinger_pose[0:3]) / 2.0
+        finger_pose[3:7] = lfinger_pose[3:7]
         hand_pose_inv_rot, hand_pose_inv_pos = tf_inverse(hand_pose[3:7], hand_pose[0:3])
 
         robot_local_grasp_pose_rot, robot_local_pose_pos = tf_combine(
@@ -281,12 +252,9 @@ class FrankaCabinetEnv(DirectRLEnv):
             (self.num_envs, 1)
         )
 
-        # self.hand_link_idx = self._robot.find_bodies("palm_link")[0][0]
         self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
-        self.index_finger_link_idx = self._robot.find_bodies("index_link_3")[0][0]
-        self.middle_finger_link_idx = self._robot.find_bodies("middle_link_3")[0][0]
-        self.ring_finger_link_idx = self._robot.find_bodies("ring_link_3")[0][0]
-        self.thumb_finger_link_idx = self._robot.find_bodies("thumb_link_3")[0][0]
+        self.left_finger_link_idx = self._robot.find_bodies("panda_leftfinger")[0][0]
+        self.right_finger_link_idx = self._robot.find_bodies("panda_rightfinger")[0][0]
         self.drawer_link_idx = self._cabinet.find_bodies("drawer_top")[0][0]
 
         self.robot_grasp_rot = torch.zeros((self.num_envs, 4), device=self.device)
@@ -331,11 +299,8 @@ class FrankaCabinetEnv(DirectRLEnv):
     def _get_rewards(self) -> torch.Tensor:
         # Refresh the intermediate values after the physics steps
         self._compute_intermediate_values()
-        robot_index_finger_pos = self._robot.data.body_pos_w[:, self.index_finger_link_idx]
-        robot_middle_finger_pos = self._robot.data.body_pos_w[:, self.middle_finger_link_idx]
-        robot_ring_finger_pos = self._robot.data.body_pos_w[:, self.ring_finger_link_idx]
-        robot_upper_finger_pos = (robot_index_finger_pos + robot_middle_finger_pos + robot_ring_finger_pos)/3.0
-        robot_thumb_finger_pos = self._robot.data.body_pos_w[:, self.thumb_finger_link_idx]
+        robot_left_finger_pos = self._robot.data.body_pos_w[:, self.left_finger_link_idx]
+        robot_right_finger_pos = self._robot.data.body_pos_w[:, self.right_finger_link_idx]
 
         return self._compute_rewards(
             self.actions,
@@ -344,8 +309,8 @@ class FrankaCabinetEnv(DirectRLEnv):
             self.drawer_grasp_pos,
             self.robot_grasp_rot,
             self.drawer_grasp_rot,
-            robot_upper_finger_pos,
-            robot_thumb_finger_pos,
+            robot_left_finger_pos,
+            robot_right_finger_pos,
             self.gripper_forward_axis,
             self.drawer_inward_axis,
             self.gripper_up_axis,
@@ -451,8 +416,6 @@ class FrankaCabinetEnv(DirectRLEnv):
     ):
         # distance from hand to the drawer
         d = torch.norm(franka_grasp_pos - drawer_grasp_pos, p=2, dim=-1)
-        # print("franka_grasp_pos", franka_grasp_pos)
-        # print("drawer_grasp_pos", drawer_grasp_pos)
         dist_reward = 1.0 / (1.0 + d**2)
         dist_reward *= dist_reward
         dist_reward = torch.where(d <= 0.02, dist_reward * 2, dist_reward)

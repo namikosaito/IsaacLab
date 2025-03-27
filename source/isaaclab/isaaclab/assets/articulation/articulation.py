@@ -166,6 +166,10 @@ class Articulation(AssetBase):
         for actuator in self.actuators.values():
             actuator.reset(env_ids)
         # reset external wrench
+        # print("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+        # print("self._external_torque_b", self._external_torque_b)
+        # print("env_ids", env_ids)
+        # print("self._external_force_b[env_ids]", self._external_force_b[env_ids])
         self._external_force_b[env_ids] = 0.0
         self._external_torque_b[env_ids] = 0.0
 

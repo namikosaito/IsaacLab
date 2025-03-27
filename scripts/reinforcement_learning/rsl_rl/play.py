@@ -16,7 +16,7 @@ import cli_args  # isort: skip
 
 # add argparse arguments
 parser = argparse.ArgumentParser(description="Train an RL agent with RSL-RL.")
-parser.add_argument("--video", action="store_true", default=False, help="Record videos during training.")
+parser.add_argument("--video", action="store_true", default=True, help="Record videos during training.")
 parser.add_argument("--video_length", type=int, default=200, help="Length of the recorded video (in steps).")
 parser.add_argument(
     "--disable_fabric", action="store_true", default=False, help="Disable fabric and use USD I/O operations."
@@ -48,6 +48,7 @@ import gymnasium as gym
 import os
 import time
 import torch
+import isaaclab.sim as sim_utils
 
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper, export_policy_as_jit, export_policy_as_onnx
 from rsl_rl.runners import OnPolicyRunner
@@ -136,18 +137,22 @@ def main():
         with torch.inference_mode():
             # agent stepping
             actions = policy(obs)
+            print("actions=", actions)
             # env stepping
             obs, _, _, _ = env.step(actions)
-        if args_cli.video:
+            print("obs=", obs)
+        # record        
+        if args_cli.video:  
             timestep += 1
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
 
         # time delay for real-time evaluation
-        sleep_time = dt - (time.time() - start_time)
-        if args_cli.real_time and sleep_time > 0:
-            time.sleep(sleep_time)
+        # sleep_time = dt - (time.time() - start_time)
+        # if args_cli.real_time and sleep_time > 0:
+        #     time.sleep(sleep_time)
+        time.sleep(0.2) # 5Hz
 
     # close the simulator
     env.close()

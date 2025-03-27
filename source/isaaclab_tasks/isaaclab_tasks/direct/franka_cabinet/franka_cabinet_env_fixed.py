@@ -37,6 +37,8 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
     observation_space = 11
     state_space = 0
 
+    PRIM ="/Root/franka_allegro"
+
     # simulation
     sim: SimulationCfg = SimulationCfg(
         dt=1 / 120,
@@ -53,11 +55,12 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
 
     # scene
     scene: InteractiveSceneCfg = InteractiveSceneCfg(num_envs=4096, env_spacing=3.0, replicate_physics=True)
-    # omni.usd.get_context().open_stage("/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd")
+    omni.usd.get_context().open_stage("/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd")
+
 
     # robot
     robot = ArticulationCfg(
-        prim_path="/World/envs/env_.*/Robot",
+        prim_path="/Root/franka_allegro",
         spawn=sim_utils.UsdFileCfg(
             usd_path="/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd",
             activate_contact_sensors=False,
@@ -83,15 +86,15 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 "ring_joint_1" : 0.0,
                 "thumb_joint_1" : 0.0,
             },
-            pos=(1/36.0, 0.0, 0.0),
-            rot=(36.0, 0.0, 0.0, 1.0),
+            pos=(0.0, 0.0, 0.0),
+            rot=(0.0, 0.0, 0.0, 1.0),
         ),
         actuators={
             "panda_shoulder": ImplicitActuatorCfg(
                 joint_names_expr=["panda_joint[1-4]"],
                 effort_limit=87.0,
                 velocity_limit=2.175,
-                stiffness=80.0,
+                stiffness=800,
                 damping=4.0,
             ),
             "panda_forearm": ImplicitActuatorCfg(
@@ -105,7 +108,7 @@ class FrankaCabinetEnvCfg(DirectRLEnvCfg):
                 joint_names_expr=["panda_joint[6-7]"],
                 effort_limit=200.0,
                 velocity_limit=1.0,
-                stiffness=2e3,
+                stiffness=1000,
                 damping=1e2,
             ),
             "panda_hand": ImplicitActuatorCfg(
@@ -221,14 +224,14 @@ class FrankaCabinetEnv(DirectRLEnv):
 
         self.robot_dof_targets = torch.zeros((self.num_envs, self._robot.num_joints), device=self.device)
 
-        stage = get_current_stage()
-        PRIM ="/World/envs/env_0/Robot/franka_allegro" 
-        # PRIM="/Root/franka_allegro/allegro_hand"
+        # omni.usd.get_context().open_stage("/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd")
+        stage = get_current_stage()#"/home/namiko/work/Honda_isaac/IsaacLab/franka_allegro_fixedfinger_4.usd")
+        # print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!", stage)
+        PRIM ="/Root/franka_allegro"
 
         hand_pose = get_env_local_pose(
             self.scene.env_origins[0],
-            # UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/palm_link")),
-            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/franka/panda_link7")),
+            UsdGeom.Xformable(stage.GetPrimAtPath(PRIM+"/allegro_hand/palm_link")),
             self.device,
         )
         index_finger_pose = get_env_local_pose(
@@ -281,8 +284,8 @@ class FrankaCabinetEnv(DirectRLEnv):
             (self.num_envs, 1)
         )
 
-        # self.hand_link_idx = self._robot.find_bodies("palm_link")[0][0]
-        self.hand_link_idx = self._robot.find_bodies("panda_link7")[0][0]
+        # self.hand_link_idx = self._robot.find_bodies("thumb_link_3")[0][0]
+        self.hand_link_idx = self._robot.find_bodies("palm_link")[0][0]
         self.index_finger_link_idx = self._robot.find_bodies("index_link_3")[0][0]
         self.middle_finger_link_idx = self._robot.find_bodies("middle_link_3")[0][0]
         self.ring_finger_link_idx = self._robot.find_bodies("ring_link_3")[0][0]
